@@ -674,6 +674,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      *
      * @return the table
      */
+    /**
+     * 对哈希表进行扩容。如果是第一次扩容（即数组为null），还承担了初始化哈希表的功能。
+     * 每次扩容都是将哈希表的长度扩大为原来的两倍。
+     * 
+     * 键值对在新表中的位置要么与在旧表中相同，要么向后移动了旧表长度。
+     */
     final Node<K,V>[] resize() {
         Node<K,V>[] oldTab = table;
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
@@ -703,21 +709,28 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         @SuppressWarnings({"rawtypes","unchecked"})
         Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
         table = newTab;
+        // 开始数据迁移
         if (oldTab != null) {
             for (int j = 0; j < oldCap; ++j) {
                 Node<K,V> e;
                 if ((e = oldTab[j]) != null) {
                     oldTab[j] = null;
+                    // 如果桶中只有一个键值对，就直接将该键值对放入新表的原位置
                     if (e.next == null)
                         newTab[e.hash & (newCap - 1)] = e;
+                    // 如果桶中的数据已经是红黑树组织的，就要split
                     else if (e instanceof TreeNode)
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+                    // 如果桶中的数据是一个链表，就要依次将链表中的元素插入到新的哈希表中
+                    // 并且该链表会根据元素的哈希值分裂成两个链表，放在新哈希表中的不同的位置上
+                    // 这种分裂实际上就是与插入键值对时计算位置的方法是一致的
                     else { // preserve order
                         Node<K,V> loHead = null, loTail = null;
                         Node<K,V> hiHead = null, hiTail = null;
                         Node<K,V> next;
                         do {
                             next = e.next;
+                            // 有的键值对在新的哈希表中的位置不变
                             if ((e.hash & oldCap) == 0) {
                                 if (loTail == null)
                                     loHead = e;
@@ -725,6 +738,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                     loTail.next = e;
                                 loTail = e;
                             }
+                            // 有的键值对在新的哈希表中相对原来向后移动了“旧表长度”个位置
                             else {
                                 if (hiTail == null)
                                     hiHead = e;
@@ -733,6 +747,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
+                        // 把分裂开的两个链表放到新哈希表中的对应位置上
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
