@@ -378,11 +378,19 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
      */
+
+     /**
+      * ctl变量有两个作用：保存线程池的状态（runState）和线程数（workerCount），从注释来看，ctl应该是control的缩写
+      * 其中ctl的高3位用来保存状态，有5个可能的值，分别为-1，0，1，2，3
+      * 剩下的位（29位或者61位？）用来表示线程数量（无符号的）
+      */
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
     private static final int COUNT_BITS = Integer.SIZE - 3;
+    // 掩码，与ctl做“与运算”可以得到线程数
     private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
 
     // runState is stored in the high-order bits
+    // 线程池的状态定义
     private static final int RUNNING    = -1 << COUNT_BITS;
     private static final int SHUTDOWN   =  0 << COUNT_BITS;
     private static final int STOP       =  1 << COUNT_BITS;
@@ -390,8 +398,17 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private static final int TERMINATED =  3 << COUNT_BITS;
 
     // Packing and unpacking ctl
+    /**
+     *  从ctl值得到runState
+     */
     private static int runStateOf(int c)     { return c & ~CAPACITY; }
+    /**
+     *  从ctl值得到workerCount
+     */
     private static int workerCountOf(int c)  { return c & CAPACITY; }
+    /** 
+     * 将runState和workerCount组装为ctl
+     */ 
     private static int ctlOf(int rs, int wc) { return rs | wc; }
 
     /*
@@ -1363,18 +1380,36 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * and so reject the task.
          */
         int c = ctl.get();
+        /**
+         * 如果当前的工作线程小于核心线程数，则新建一个核心线程
+         */
         if (workerCountOf(c) < corePoolSize) {
             if (addWorker(command, true))
                 return;
             c = ctl.get();
         }
+        /**
+         * 如果当前的工作线程大于等于核心线程数（或者前面的新建核心线程失败）
+         * 则尝试向等待队列中插入任务，插入成功后还要再次检查线程池状态
+         */
         if (isRunning(c) && workQueue.offer(command)) {
             int recheck = ctl.get();
+            /**
+             * 这里利用了“与运算”短路性质
+             * 即，如果线程池仍在运行，就不会调用remove(command)
+             * 但是如果线程池已经不是运行状态（RUNNING）,就会将当前的任务从工作队列中移除
+             *      如果移除成功就调用拒绝策略（应该是不会移除失败的）
+             * 如果线程池仍然是运行状态，并且线程池中的工作线程为0，就要新建一个工作线程（worker）让他来拉取队列中的任务
+             *      参考：https://stackoverflow.com/questions/46901095/java-threadpoolexecutor-why-we-need-to-judge-the-worker-count-in-the-execute-fun?r=SearchResults
+             */
             if (! isRunning(recheck) && remove(command))
                 reject(command);
             else if (workerCountOf(recheck) == 0)
                 addWorker(null, false);
         }
+        /**
+         * 前面两步都失败后，再尝试新建非核心线程，如果失败，就调用调用拒绝策略
+         */
         else if (!addWorker(command, false))
             reject(command);
     }
